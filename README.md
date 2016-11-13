@@ -1,0 +1,1 @@
+There are some hello world applications to help to study Akka
