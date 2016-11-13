@@ -4,14 +4,14 @@ import akka.actor.*;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 import akka.japi.pf.ReceiveBuilder;
-import scala.concurrent.Await;
+import scala.Option;
 import scala.concurrent.duration.Duration;
 
+import java.io.Serializable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static akka.actor.SupervisorStrategy.*;
-import static akka.pattern.Patterns.ask;
 
 /**
  * http://img.blog.csdn.net/20150312213012535?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcm93YW5oYW9h/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/Center
@@ -20,7 +20,7 @@ import static akka.pattern.Patterns.ask;
  */
 public class PiApp {
 
-    private static AtomicBoolean THROW_ERROR = new AtomicBoolean(false);
+    private static AtomicBoolean THROW_ERROR = new AtomicBoolean(true);
     private static final SupervisorStrategy strategy = new OneForOneStrategy(
             1,
             Duration.create("1 minute"),
@@ -40,14 +40,14 @@ public class PiApp {
     public static void main(String... args) {
         ActorSystem system = ActorSystem.create("PI-System");
         ActorRef listener = system.actorOf(Props.create(PiListener.class), "listener");
-        ActorRef master = system.actorOf(Props.create(Master.class, 4, 10000, 10000, listener), "master");
+        ActorRef master = system.actorOf(Props.create(Master.class, 4, 10000, 100000, listener), "master");
         master.tell(new StartMessage(), ActorRef.noSender());
     }
 
-    private static class StartMessage {
+    private static class StartMessage implements Serializable {
     }
 
-    private static class WorkMessage {
+    private static class WorkMessage implements Serializable {
 
         private final int start;
         private final int numberOfElements;
@@ -75,7 +75,7 @@ public class PiApp {
         }
     }
 
-    private static class ResultMessage {
+    private static class ResultMessage implements Serializable {
 
         private final Double pi;
         private final Duration duration;
@@ -134,10 +134,13 @@ public class PiApp {
             return result;
         }
 
-//        @Override
-//        public SupervisorStrategy supervisorStrategy() {
-//            return strategy;
-//        }
+        @Override
+        public void preRestart(Throwable reason, Option<Object> message) throws Exception {
+            log.error(reason, "Pre restarting...{}", this);
+            self().tell(message.get(), sender());
+            super.preRestart(reason, message);
+        }
+
     }
 
     private static class Master extends AbstractActor {
@@ -154,8 +157,7 @@ public class PiApp {
             this.numberOfMessages = numberOfMessages;
             this.numberOfElements = numberOfElements;
 
-            ActorRef workerRouter = this.getContext().actorOf(Props.create(Worker.class)/*.withRouter(new RoundRobinRouter(nrOfWorkers))*/,
-                    "workerRouter");
+            ActorRef workerRouter = this.getContext().actorOf(Props.create(Worker.class)/*.withRouter(new FromConfig())*/, "workerRouter");
 
             receive(
                     ReceiveBuilder
@@ -181,10 +183,16 @@ public class PiApp {
             );
         }
 
-//        @Override
-//        public SupervisorStrategy supervisorStrategy() {
-//            return strategy;
-//        }
+        @Override
+        public SupervisorStrategy supervisorStrategy() {
+            return strategy;
+        }
+
+        @Override
+        public void preRestart(Throwable reason, Option<Object> message) throws Exception {
+            log.error(reason, "Restarting...{}", this);
+            super.preRestart(reason, message);
+        }
 
     }
 
